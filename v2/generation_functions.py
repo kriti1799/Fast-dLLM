@@ -337,7 +337,15 @@ class Fast_dLLM_QwenForCausalLM:
                                 prev_hidden_sb[small_block_idx]  = hidden.detach()
                                 prev_logits_sb[small_block_idx]   = logits.detach()
 
-                            
+                        base = x_t.size(1) - block_size              # start index of the current last block in x_t
+                        rel  = (seq_len - base)                      # [B] position of prompt boundary within last block
+
+                        in_slice = (rel >= small_block_start_idx) & (rel < small_block_end_idx)
+                        if in_slice.any():
+                            rows = in_slice.nonzero(as_tuple=True)[0]
+                            cols = (rel[rows] - small_block_start_idx).long()   # column within this micro-block [0..L)
+                            logits = logits.clone()                              # avoid side-effects
+                            logits[rows, cols, stop_token] = -1e9               # ban stop at that position  
 
                         x_1, p_1t = self.sample_with_top_p(logits, top_p=top_p, temperature=temperature)
                         x1_p = torch.squeeze(torch.gather(p_1t, dim=-1, index=torch.unsqueeze(x_1, -1)), -1)
@@ -353,22 +361,7 @@ class Fast_dLLM_QwenForCausalLM:
                         if use_block_cache and do_skip and unmask_idx.any():
                             block_past_key_values = None
 
-                        finished_row_flags = ((x_1 == stop_token) & unmask_idx).any(dim=1) # shape: [B]
-
-                        MIN_TOKENS_BEFORE_STOP = 5  # try 2; increase to 5 if needed
-
-                        if MIN_TOKENS_BEFORE_STOP > 0:
-                            pad_id = tokenizer.pad_token_id
-                            # positions in the whole sequence
-                            pos = torch.arange(x_t.shape[1], device=x_t.device)[None, :]
-                            beyond_prompt = pos >= seq_len[:, None]  # [B, T]
-
-                            filled = (x_t != mask_id) & (x_t != pad_id)
-                            # optional: don't count the stop token itself
-                            filled = filled & (x_t != stop_token)
-
-                            gen_len = (beyond_prompt & filled).sum(dim=1)  # [B]
-                            finished_row_flags = finished_row_flags & (gen_len >= MIN_TOKENS_BEFORE_STOP)
+                        finished_row_flags = ((x_1 == stop_token) & unmask_idx).any(dim=1) # shape: [B]                      
 
                         finished_flag = finished_flag | finished_row_flags
 
@@ -530,6 +523,10 @@ class Fast_dLLM_QwenForCausalLM:
                         logits = logits[:, start:end]
                             
                         step += 1
+
+                        # Prevent stop_token from being generated as the FIRST token after the prompt
+                       
+
                         x_1, p_1t = self.sample_with_top_p(logits, top_p=top_p, temperature=temperature)
 
                         # Select tokens with probability greater than threshold in p_1t
