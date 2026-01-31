@@ -354,6 +354,22 @@ class Fast_dLLM_QwenForCausalLM:
                             block_past_key_values = None
 
                         finished_row_flags = ((x_1 == stop_token) & unmask_idx).any(dim=1) # shape: [B]
+
+                        MIN_TOKENS_BEFORE_STOP = 5  # try 2; increase to 5 if needed
+
+                        if MIN_TOKENS_BEFORE_STOP > 0:
+                            pad_id = tokenizer.pad_token_id
+                            # positions in the whole sequence
+                            pos = torch.arange(x_t.shape[1], device=x_t.device)[None, :]
+                            beyond_prompt = pos >= seq_len[:, None]  # [B, T]
+
+                            filled = (x_t != mask_id) & (x_t != pad_id)
+                            # optional: don't count the stop token itself
+                            filled = filled & (x_t != stop_token)
+
+                            gen_len = (beyond_prompt & filled).sum(dim=1)  # [B]
+                            finished_row_flags = finished_row_flags & (gen_len >= MIN_TOKENS_BEFORE_STOP)
+
                         finished_flag = finished_flag | finished_row_flags
 
                         step += 1

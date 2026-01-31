@@ -243,7 +243,7 @@ class Fast_dLLM_v2EvalHarness(LM):
                 if req.task_name.startswith('minerva_math'):
                     question = question.replace("Solution:", "Please reason step by step, and put your final answer within \\boxed{{}}.")
                 elif req.task_name.startswith('gsm8k'):
-                    question = question.replace("Answer:", "Please reason step by step, and put your final answer with: #### <final answer>.")
+                    question = question.replace("Answer:", "Please reason step by step, and put your final answer within \\boxed{{}}.")
                 model_inputs = self.tokenizer([question], return_tensors="pt").to(self.device)
                 batched_input_ids.append(model_inputs["input_ids"])
                 max_len = max(max_len, model_inputs["input_ids"].shape[1])
@@ -308,7 +308,7 @@ class Fast_dLLM_v2EvalHarness(LM):
                     generated_ids[batch_pos][seq_len[batch_pos]:], 
                     skip_special_tokens=True
                 )
-                
+
                 # Testing
                 gen = generated_ids[batch_pos][seq_len[batch_pos]:]  # tokens after prompt
                 if generated_answer.strip() == "":
