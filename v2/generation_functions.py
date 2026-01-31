@@ -104,11 +104,20 @@ class Fast_dLLM_QwenForCausalLM:
                                 logits, block_past_key_values = output.logits, output.block_past_key_values
                                 logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)
                                 logits = logits[:, start:end]
+                                # Changed - Added hidden
+                                hidden = output.hidden_states[:, start:end, :]
                             else:
-                                logits = self.forward(input_ids=x_t[:,start:end], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, use_block_cache=True, block_past_key_values=block_past_key_values, replace_position=small_block_start_idx).logits
+                                logits = self.forward(input_ids=x_t[:,start:end], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, use_block_cache=True, 
+                                                      block_past_key_values=block_past_key_values, replace_position=small_block_start_idx).logits
                                 logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)
                         else:
-                            logits = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False).logits
+                            #logits = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False).logits
+                            #Change - Adding a hidden state variable
+                            output = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False)
+                            hidden = output.hidden_states
+                            hidden = hidden[:, start:end, :]
+
+                            logits = output.logits
                             logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)
                             logits = logits[:, start:end]
                         x_1, p_1t = self.sample_with_top_p(logits, top_p=top_p, temperature=temperature)
