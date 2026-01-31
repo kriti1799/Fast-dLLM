@@ -2,6 +2,7 @@ from typing import Callable, Optional, Union
 import torch
 import types
 from transformers.utils import auto_docstring, logging
+import torch.nn.functional as F
 
 # Constants for Fast_dLLM model
 FAST_DLLM_MASK_ID = 151665
@@ -29,6 +30,8 @@ class Fast_dLLM_QwenForCausalLM:
         use_block_cache=False,
         top_p=0.95,
         temperature=0.0,
+        token_cos_threshold: float = 1.1,  # >1 disables skipping by default
+
     ):
         num_blocks = max_new_tokens // block_size + seq_len.max().item() // block_size
         batch_size = input_ids.shape[0]
@@ -55,6 +58,10 @@ class Fast_dLLM_QwenForCausalLM:
 
         sample_indices = torch.arange(batch_size, device=self.device)
         finished_samples = {}
+
+        token_skip_skipped_total = 0
+        token_skip_eligible_total = 0
+        
         for block_idx in range(start_block_idx, num_blocks):
             if finished_flag.all():
                 break
@@ -67,6 +74,15 @@ class Fast_dLLM_QwenForCausalLM:
 
             x_init[finished_flag, -block_size:] = tokenizer.pad_token_id
             x_t = x_init.clone()
+            token_skip_skipped = 0
+            token_skip_eligible = 0
+
+            
+
+            # store previous step outputs per small-block (so shapes always match)
+            prev_hidden_sb = [None] * num_small_blocks
+            prev_logits_sb  = [None] * num_small_blocks
+
             step = 0
             block_past_key_values = None
             while True:
@@ -104,12 +120,67 @@ class Fast_dLLM_QwenForCausalLM:
                                 logits, block_past_key_values = output.logits, output.block_past_key_values
                                 logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)
                                 logits = logits[:, start:end]
-                                # Changed - Added hidden
+                                # Changed - Added hidden states
                                 hidden = output.hidden_states[:, start:end, :]
+                                if token_cos_threshold <= 1.0 and prev_hidden_sb[small_block_idx] is not None:
+                                    prev_h = prev_hidden_sb[small_block_idx]       # [B, L, H]
+                                    prev_l = prev_logits_sb[small_block_idx]       # [B, L, V]
+
+                                    # cosine similarity per token position -> [B, L]
+                                    cos = F.cosine_similarity(hidden, prev_h, dim=-1)
+
+                                    # only meaningful for positions that are still masked in this slice
+                                    cur_mask = mask_idx[:, start:end]  # [B, L] boolean
+                                    reuse_mask = (cos >= token_cos_threshold) & cur_mask
+
+                                    # reuse previous step outputs for those token positions
+                                    logits = torch.where(reuse_mask.unsqueeze(-1), prev_l, logits)
+                                    hidden = torch.where(reuse_mask.unsqueeze(-1), prev_h, hidden)
+
+                                    token_skip_skipped += int(reuse_mask.sum().item())
+                                    token_skip_eligible += int(cur_mask.sum().item())
+
+                                # update previous-step storage for this small block
+                                prev_hidden_sb[small_block_idx] = hidden.detach()
+                                prev_logits_sb[small_block_idx]  = logits.detach()  
+                                # -----------------------------------------------
+
+
                             else:
-                                logits = self.forward(input_ids=x_t[:,start:end], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, use_block_cache=True, 
-                                                      block_past_key_values=block_past_key_values, replace_position=small_block_start_idx).logits
+                                output = self.forward(input_ids=x_t[:,start:end], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, use_block_cache=True, 
+                                                      block_past_key_values=block_past_key_values, replace_position=small_block_start_idx)
+                                logits = output.logits
                                 logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)
+                                
+                                hidden = output.hidden_states
+                                L = small_block_end_idx - small_block_start_idx
+                                
+                                assert hidden.shape[1] == L and logits.shape[1] == L, (hidden.shape, logits.shape, L)
+
+
+                                if token_cos_threshold <= 1.0 and prev_hidden_sb[small_block_idx] is not None:
+                                    prev_h = prev_hidden_sb[small_block_idx]       # [B, L, H]
+                                    prev_l = prev_logits_sb[small_block_idx]       # [B, L, V]
+
+                                    # cosine similarity per token position -> [B, L]
+                                    cos = F.cosine_similarity(hidden, prev_h, dim=-1)
+
+                                    # only meaningful for positions that are still masked in this slice
+                                    cur_mask = mask_idx[:, start:end]  # [B, L] boolean
+                                    reuse_mask = (cos >= token_cos_threshold) & cur_mask
+
+                                    # reuse previous step outputs for those token positions
+                                    logits = torch.where(reuse_mask.unsqueeze(-1), prev_l, logits)
+                                    hidden = torch.where(reuse_mask.unsqueeze(-1), prev_h, hidden)
+
+                                    token_skip_skipped += int(reuse_mask.sum().item())
+                                    token_skip_eligible += int(cur_mask.sum().item())
+
+                                # update previous-step storage for this small block
+                                prev_hidden_sb[small_block_idx] = hidden.detach()
+                                prev_logits_sb[small_block_idx]  = logits.detach()  
+                                # -----------------------------------------------
+                                
                         else:
                             #logits = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False).logits
                             #Change - Adding a hidden state variable
@@ -120,6 +191,31 @@ class Fast_dLLM_QwenForCausalLM:
                             logits = output.logits
                             logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)
                             logits = logits[:, start:end]
+
+
+                            if token_cos_threshold <= 1.0 and prev_hidden_sb[small_block_idx] is not None:
+                                    prev_h = prev_hidden_sb[small_block_idx]       # [B, L, H]
+                                    prev_l = prev_logits_sb[small_block_idx]       # [B, L, V]
+
+                                    # cosine similarity per token position -> [B, L]
+                                    cos = F.cosine_similarity(hidden, prev_h, dim=-1)
+
+                                    # only meaningful for positions that are still masked in this slice
+                                    cur_mask = mask_idx[:, start:end]  # [B, L] boolean
+                                    reuse_mask = (cos >= token_cos_threshold) & cur_mask
+
+                                    # reuse previous step outputs for those token positions
+                                    logits = torch.where(reuse_mask.unsqueeze(-1), prev_l, logits)
+                                    hidden = torch.where(reuse_mask.unsqueeze(-1), prev_h, hidden)
+
+                                    token_skip_skipped += int(reuse_mask.sum().item())
+                                    token_skip_eligible += int(cur_mask.sum().item())
+
+                            # update previous-step storage for this small block
+                            prev_hidden_sb[small_block_idx] = hidden.detach()
+                            prev_logits_sb[small_block_idx]  = logits.detach()  
+                            # -----------------------------------------------
+
                         x_1, p_1t = self.sample_with_top_p(logits, top_p=top_p, temperature=temperature)
                         x1_p = torch.squeeze(torch.gather(p_1t, dim=-1, index=torch.unsqueeze(x_1, -1)), -1)
                         x1_p = torch.where(mask_idx[:, start:end], x1_p, -torch.inf)
@@ -135,6 +231,10 @@ class Fast_dLLM_QwenForCausalLM:
                         finished_flag = finished_flag | finished_row_flags
 
                         step += 1
+
+            token_skip_skipped_total += token_skip_skipped
+            token_skip_eligible_total += token_skip_eligible
+
 
             if input_ids.shape[1] ==  x_t.shape[1]:
                 input_ids = x_t
@@ -174,6 +274,11 @@ class Fast_dLLM_QwenForCausalLM:
                 finished_samples[original_idx] = x_t[sample_idx:sample_idx+1].clone().squeeze(dim=0)
         
         assert len(finished_samples) == batch_size
+        self.token_skip_stats = {
+        "skipped": int(token_skip_skipped_total),
+        "eligible": int(token_skip_eligible_total),
+        "ratio": float(token_skip_skipped_total) / max(1, int(token_skip_eligible_total)),
+}
         return finished_samples
 
     @torch.no_grad()
@@ -237,6 +342,8 @@ class Fast_dLLM_QwenForCausalLM:
             x_init = torch.cat([input_ids, x_init], dim=1)
                 
             x_t = x_init.clone()
+            
+            
             block_past_key_values = None
             step = 0
             
