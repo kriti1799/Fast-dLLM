@@ -108,6 +108,8 @@ class Fast_dLLM_v2EvalHarness(LM):
         self.small_block_size = small_block_size
         self.threshold = threshold
         self.bd_size = bd_size
+        self.token_cos_threshold = token_cos_threshold
+
 
     @property
     def rank(self):
