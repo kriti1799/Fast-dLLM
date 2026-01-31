@@ -60,6 +60,7 @@ class Fast_dLLM_v2EvalHarness(LM):
         small_block_size=8,
         bd_size=32,
         threshold=0.9,
+        token_cos_threshold=1.1,
         **kwargs,
     ):
 
@@ -205,6 +206,10 @@ class Fast_dLLM_v2EvalHarness(LM):
         return out
     
     def generate_until(self, requests):
+        total_fwd_tokens = 0
+        total_skipped = 0
+        total_eligible = 0
+
         output = [None] * len(requests)  # pre-allocate output list
         num_tokens = 0
         
@@ -261,7 +266,16 @@ class Fast_dLLM_v2EvalHarness(LM):
                         seq_len=torch.tensor(seq_len, device=self.device),
                         use_block_cache=self.use_block_cache,
                         threshold=self.threshold,
+                        token_cos_threshold=self.token_cos_threshold,
                     )
+
+                    m = self.accelerator.unwrap_model(self.model) if self.accelerator is not None else self.model
+
+                    stats = getattr(m, "token_skip_stats", None)
+                    if stats is not None:
+                        total_fwd_tokens += int(stats.get("fwd_tokens", 0))
+                        total_skipped += int(stats.get("skipped", 0))
+                        total_eligible += int(stats.get("eligible", 0))
                 else:
                     generated_ids = self.model.mdm_sample(
                         batched_input_ids,
@@ -274,8 +288,18 @@ class Fast_dLLM_v2EvalHarness(LM):
                         seq_len=torch.tensor(seq_len, device=self.device),
                         use_block_cache=self.use_block_cache,
                         threshold=self.threshold,
+                        token_cos_threshold=self.token_cos_threshold,
                     )
-            
+
+                    m = self.accelerator.unwrap_model(self.model) if self.accelerator is not None else self.model
+                    print("[LAST BATCH STATS]", getattr(m, "token_skip_stats", None))
+
+                    stats = getattr(m, "token_skip_stats", None)
+                    if stats is not None:
+                        total_fwd_tokens += int(stats.get("fwd_tokens", 0))
+                        total_skipped += int(stats.get("skipped", 0))
+                        total_eligible += int(stats.get("eligible", 0))
+                                
             # extract new generated tokens, and keep original index order
             for batch_pos, (orig_idx, req) in enumerate(batch):
                 generated_answer = self.tokenizer.decode(
@@ -300,7 +324,10 @@ class Fast_dLLM_v2EvalHarness(LM):
             print(f"Total number of tokens generated: {num_tokens}")
             print(f"Total time taken: {end_time - start_time} seconds")
             print(f"Tokens per second: {num_tokens / (end_time - start_time)}")
-            
+        
+        print("[SKIP STATS] token_cos_threshold =", self.token_cos_threshold)
+        print("[SKIP STATS] fwd_tokens =", total_fwd_tokens)
+        print("[SKIP STATS] skipped/eligible =", total_skipped, "/", total_eligible)
         return output
 
 

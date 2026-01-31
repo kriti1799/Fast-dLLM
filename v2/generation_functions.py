@@ -61,6 +61,7 @@ class Fast_dLLM_QwenForCausalLM:
 
         token_skip_skipped_total = 0
         token_skip_eligible_total = 0
+        fwd_tokens_total = 0
         
         for block_idx in range(start_block_idx, num_blocks):
             if finished_flag.all():
@@ -82,6 +83,14 @@ class Fast_dLLM_QwenForCausalLM:
             # store previous step outputs per small-block (so shapes always match)
             prev_hidden_sb = [None] * num_small_blocks
             prev_logits_sb  = [None] * num_small_blocks
+            prev2_hidden_sb = [None] * num_small_blocks   # second last COMPUTED
+            prev2_logits_sb = [None] * num_small_blocks
+
+            skip_streak_sb  = [0] * num_small_blocks
+            max_skip_streak = 1   # start with 1; tune later (0 disables skipping)
+
+             # count tokens actually sent through forward
+
 
             step = 0
             block_past_key_values = None
@@ -114,107 +123,221 @@ class Fast_dLLM_QwenForCausalLM:
                         if mask_idx[:, start:end].sum() == 0:
                             break
                         
+                        
                         if use_block_cache:
                             if block_past_key_values is None or (x_t[:, -block_size+small_block_start_idx] == mask_id).any():
-                                output = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, use_block_cache=True)
-                                logits, block_past_key_values = output.logits, output.block_past_key_values
-                                logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)
-                                logits = logits[:, start:end]
-                                # Changed - Added hidden states
-                                hidden = output.hidden_states[:, start:end, :]
-                                if token_cos_threshold <= 1.0 and prev_hidden_sb[small_block_idx] is not None:
-                                    prev_h = prev_hidden_sb[small_block_idx]       # [B, L, H]
-                                    prev_l = prev_logits_sb[small_block_idx]       # [B, L, V]
 
-                                    # cosine similarity per token position -> [B, L]
-                                    cos = F.cosine_similarity(hidden, prev_h, dim=-1)
+                                cur_mask = mask_idx[:, start:end]
 
-                                    # only meaningful for positions that are still masked in this slice
-                                    cur_mask = mask_idx[:, start:end]  # [B, L] boolean
-                                    reuse_mask = (cos >= token_cos_threshold) & cur_mask
-
-                                    # reuse previous step outputs for those token positions
-                                    logits = torch.where(reuse_mask.unsqueeze(-1), prev_l, logits)
-                                    hidden = torch.where(reuse_mask.unsqueeze(-1), prev_h, hidden)
-
-                                    token_skip_skipped += int(reuse_mask.sum().item())
+                                if (
+                                    token_cos_threshold <= 1.0
+                                    and cur_mask.any()
+                                    and prev_hidden_sb[small_block_idx] is not None
+                                    and prev2_hidden_sb[small_block_idx] is not None
+                                ):
                                     token_skip_eligible += int(cur_mask.sum().item())
+                                do_skip = False
 
-                                # update previous-step storage for this small block
-                                prev_hidden_sb[small_block_idx] = hidden.detach()
-                                prev_logits_sb[small_block_idx]  = logits.detach()  
-                                # -----------------------------------------------
+                                if (
+                                    token_cos_threshold <= 1.0
+                                    and max_skip_streak > 0
+                                    and skip_streak_sb[small_block_idx] < max_skip_streak
+                                    and cur_mask.any()
+                                    and prev_hidden_sb[small_block_idx] is not None
+                                    and prev2_hidden_sb[small_block_idx] is not None
+                                ):
+                                    # cosine between last 2 COMPUTED steps
+                                    h1 = prev_hidden_sb[small_block_idx].float()
+                                    h2 = prev2_hidden_sb[small_block_idx].float()
+                                    cos_prev = F.cosine_similarity(h1, h2, dim=-1).clamp(-1, 1)  # [B,L]
+
+                                    stable_masked = (cos_prev >= token_cos_threshold) & cur_mask
+
+                                    # skip ONLY if every currently-masked token in this slice is stable
+                                    do_skip = (stable_masked.sum().item() == cur_mask.sum().item())
+                                
+                                if do_skip:
+                                    logits = prev_logits_sb[small_block_idx]
+                                    hidden = prev_hidden_sb[small_block_idx]
+
+                                    token_skip_skipped += int(cur_mask.sum().item())
+                                    
+
+                                    skip_streak_sb[small_block_idx] += 1
+
+                                
+                                
+                                else:
+                                    output = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, use_block_cache=True)
+                                    logits, block_past_key_values = output.logits, output.block_past_key_values
+                                    logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)
+                                    logits = logits[:, start:end]
+                                    # Changed - Added hidden states
+                                    hidden = output.hidden_states
+                                    hidden = torch.cat([hidden[:, :1, :], hidden[:, :-1, :]], dim=1)[:, start:end, :]
+
+                                    fwd_tokens_total += x_t[:, -block_size:].numel()
+
+                                    skip_streak_sb[small_block_idx] = 0
+
+                                    prev2_hidden_sb[small_block_idx] = prev_hidden_sb[small_block_idx]
+                                    prev2_logits_sb[small_block_idx]  = prev_logits_sb[small_block_idx]
+                                    prev_hidden_sb[small_block_idx]  = hidden.detach()
+                                    prev_logits_sb[small_block_idx]   = logits.detach()
+                               
+
+                                # if token_cos_threshold <= 1.0 and prev_hidden_sb[small_block_idx] is not None:
+                                #     prev_h = prev_hidden_sb[small_block_idx]       # [B, L, H]
+                                #     prev_l = prev_logits_sb[small_block_idx]       # [B, L, V]
+
+                                   
+
+                                #     # cosine similarity per token position -> [B, L]
+                                #     cos = F.cosine_similarity(hidden, prev_h, dim=-1)
+
+                                #     # only meaningful for positions that are still masked in this slice
+                                #     cur_mask = mask_idx[:, start:end]  # [B, L] boolean
+                                #     reuse_mask = (cos >= token_cos_threshold) & cur_mask
+
+                                #     # reuse previous step outputs for those token positions
+                                #     logits = torch.where(reuse_mask.unsqueeze(-1), prev_l, logits)
+                                #     hidden = torch.where(reuse_mask.unsqueeze(-1), prev_h, hidden)
+
+                                #     token_skip_skipped += int(reuse_mask.sum().item())
+                                #     token_skip_eligible += int(cur_mask.sum().item())
+
+                                # # update previous-step storage for this small block
+                                # prev_hidden_sb[small_block_idx] = hidden.detach()
+                                # prev_logits_sb[small_block_idx]  = logits.detach()  
+                                # # -----------------------------------------------
 
 
                             else:
-                                output = self.forward(input_ids=x_t[:,start:end], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, use_block_cache=True, 
-                                                      block_past_key_values=block_past_key_values, replace_position=small_block_start_idx)
-                                logits = output.logits
-                                logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)
-                                
-                                hidden = output.hidden_states
-                                L = small_block_end_idx - small_block_start_idx
-                                
-                                assert hidden.shape[1] == L and logits.shape[1] == L, (hidden.shape, logits.shape, L)
 
+                                cur_mask = mask_idx[:, start:end]
 
-                                if token_cos_threshold <= 1.0 and prev_hidden_sb[small_block_idx] is not None:
-                                    prev_h = prev_hidden_sb[small_block_idx]       # [B, L, H]
-                                    prev_l = prev_logits_sb[small_block_idx]       # [B, L, V]
-
-                                    # cosine similarity per token position -> [B, L]
-                                    cos = F.cosine_similarity(hidden, prev_h, dim=-1)
-
-                                    # only meaningful for positions that are still masked in this slice
-                                    cur_mask = mask_idx[:, start:end]  # [B, L] boolean
-                                    reuse_mask = (cos >= token_cos_threshold) & cur_mask
-
-                                    # reuse previous step outputs for those token positions
-                                    logits = torch.where(reuse_mask.unsqueeze(-1), prev_l, logits)
-                                    hidden = torch.where(reuse_mask.unsqueeze(-1), prev_h, hidden)
-
-                                    token_skip_skipped += int(reuse_mask.sum().item())
+                                if (
+                                    token_cos_threshold <= 1.0
+                                    and cur_mask.any()
+                                    and prev_hidden_sb[small_block_idx] is not None
+                                    and prev2_hidden_sb[small_block_idx] is not None
+                                ):
                                     token_skip_eligible += int(cur_mask.sum().item())
+                                do_skip = False
 
-                                # update previous-step storage for this small block
-                                prev_hidden_sb[small_block_idx] = hidden.detach()
-                                prev_logits_sb[small_block_idx]  = logits.detach()  
-                                # -----------------------------------------------
+                                if (
+                                    token_cos_threshold <= 1.0
+                                    and max_skip_streak > 0
+                                    and skip_streak_sb[small_block_idx] < max_skip_streak
+                                    and cur_mask.any()
+                                    and prev_hidden_sb[small_block_idx] is not None
+                                    and prev2_hidden_sb[small_block_idx] is not None
+                                ):
+                                    # cosine between last 2 COMPUTED steps
+                                    h1 = prev_hidden_sb[small_block_idx].float()
+                                    h2 = prev2_hidden_sb[small_block_idx].float()
+                                    cos_prev = F.cosine_similarity(h1, h2, dim=-1).clamp(-1, 1)  # [B,L]
+
+                                    stable_masked = (cos_prev >= token_cos_threshold) & cur_mask
+
+                                    # skip ONLY if every currently-masked token in this slice is stable
+                                    do_skip = (stable_masked.sum().item() == cur_mask.sum().item())
+                                
+                                if do_skip:
+                                    logits = prev_logits_sb[small_block_idx]
+                                    hidden = prev_hidden_sb[small_block_idx]
+
+                                    token_skip_skipped += int(cur_mask.sum().item())
+                                
+
+                                    skip_streak_sb[small_block_idx] += 1
+
+                                else:
+
+
+                                    output = self.forward(input_ids=x_t[:,start:end], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, use_block_cache=True, 
+                                                        block_past_key_values=block_past_key_values, replace_position=small_block_start_idx)
+                                    logits = output.logits
+                                    logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)       
+                                    
+                                    hidden = output.hidden_states
+                                    hidden = torch.cat([hidden[:, :1, :], hidden[:, :-1, :]], dim=1)
+
+                                    fwd_tokens_total += x_t[:, start:end].numel()
+
+                                    skip_streak_sb[small_block_idx] = 0
+
+                                    prev2_hidden_sb[small_block_idx] = prev_hidden_sb[small_block_idx]
+                                    prev2_logits_sb[small_block_idx]  = prev_logits_sb[small_block_idx]
+                                    prev_hidden_sb[small_block_idx]  = hidden.detach()
+                                    prev_logits_sb[small_block_idx]   = logits.detach()
+
+
+
+                                
                                 
                         else:
+
+                            cur_mask = mask_idx[:, start:end]
+
+                            if (
+                                token_cos_threshold <= 1.0
+                                and cur_mask.any()
+                                and prev_hidden_sb[small_block_idx] is not None
+                                and prev2_hidden_sb[small_block_idx] is not None
+                            ):
+                                token_skip_eligible += int(cur_mask.sum().item())
+                            do_skip = False
+
+                            if (
+                                token_cos_threshold <= 1.0
+                                and max_skip_streak > 0
+                                and skip_streak_sb[small_block_idx] < max_skip_streak
+                                and cur_mask.any()
+                                and prev_hidden_sb[small_block_idx] is not None
+                                and prev2_hidden_sb[small_block_idx] is not None
+                            ):
+                                # cosine between last 2 COMPUTED steps
+                                h1 = prev_hidden_sb[small_block_idx].float()
+                                h2 = prev2_hidden_sb[small_block_idx].float()
+                                cos_prev = F.cosine_similarity(h1, h2, dim=-1).clamp(-1, 1)  # [B,L]
+
+                                stable_masked = (cos_prev >= token_cos_threshold) & cur_mask
+
+                                # skip ONLY if every currently-masked token in this slice is stable
+                                do_skip = (stable_masked.sum().item() == cur_mask.sum().item())
+                            
+                            if do_skip:
+                                logits = prev_logits_sb[small_block_idx]
+                                hidden = prev_hidden_sb[small_block_idx]
+
+                                token_skip_skipped += int(cur_mask.sum().item())
+                     
+
+                                skip_streak_sb[small_block_idx] += 1
+                            
+                            else:
+
                             #logits = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False).logits
                             #Change - Adding a hidden state variable
-                            output = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False)
-                            hidden = output.hidden_states
-                            hidden = hidden[:, start:end, :]
+                                output = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False)
+                                hidden = output.hidden_states
+                                hidden = torch.cat([hidden[:, :1, :], hidden[:, :-1, :]], dim=1)[:, start:end, :]
 
-                            logits = output.logits
-                            logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)
-                            logits = logits[:, start:end]
+                                logits = output.logits
+                                logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)
+                                logits = logits[:, start:end]
 
+                                fwd_tokens_total += x_t[:, -block_size:].numel()
 
-                            if token_cos_threshold <= 1.0 and prev_hidden_sb[small_block_idx] is not None:
-                                    prev_h = prev_hidden_sb[small_block_idx]       # [B, L, H]
-                                    prev_l = prev_logits_sb[small_block_idx]       # [B, L, V]
+                                skip_streak_sb[small_block_idx] = 0
 
-                                    # cosine similarity per token position -> [B, L]
-                                    cos = F.cosine_similarity(hidden, prev_h, dim=-1)
+                                prev2_hidden_sb[small_block_idx] = prev_hidden_sb[small_block_idx]
+                                prev2_logits_sb[small_block_idx]  = prev_logits_sb[small_block_idx]
+                                prev_hidden_sb[small_block_idx]  = hidden.detach()
+                                prev_logits_sb[small_block_idx]   = logits.detach()
 
-                                    # only meaningful for positions that are still masked in this slice
-                                    cur_mask = mask_idx[:, start:end]  # [B, L] boolean
-                                    reuse_mask = (cos >= token_cos_threshold) & cur_mask
-
-                                    # reuse previous step outputs for those token positions
-                                    logits = torch.where(reuse_mask.unsqueeze(-1), prev_l, logits)
-                                    hidden = torch.where(reuse_mask.unsqueeze(-1), prev_h, hidden)
-
-                                    token_skip_skipped += int(reuse_mask.sum().item())
-                                    token_skip_eligible += int(cur_mask.sum().item())
-
-                            # update previous-step storage for this small block
-                            prev_hidden_sb[small_block_idx] = hidden.detach()
-                            prev_logits_sb[small_block_idx]  = logits.detach()  
-                            # -----------------------------------------------
+                            
 
                         x_1, p_1t = self.sample_with_top_p(logits, top_p=top_p, temperature=temperature)
                         x1_p = torch.squeeze(torch.gather(p_1t, dim=-1, index=torch.unsqueeze(x_1, -1)), -1)
@@ -226,6 +349,9 @@ class Fast_dLLM_QwenForCausalLM:
                         unmask_idx = unmask_idx & mask_idx[:, start:end]
 
                         x_t[:, start:end][unmask_idx] = x_1[unmask_idx]
+
+                        if use_block_cache and do_skip and unmask_idx.any():
+                            block_past_key_values = None
 
                         finished_row_flags = ((x_1 == stop_token) & unmask_idx).any(dim=1) # shape: [B]
                         finished_flag = finished_flag | finished_row_flags
@@ -278,6 +404,7 @@ class Fast_dLLM_QwenForCausalLM:
         "skipped": int(token_skip_skipped_total),
         "eligible": int(token_skip_eligible_total),
         "ratio": float(token_skip_skipped_total) / max(1, int(token_skip_eligible_total)),
+        "fwd_tokens": int(fwd_tokens_total), 
 }
         return finished_samples
 
