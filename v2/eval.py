@@ -308,7 +308,12 @@ class Fast_dLLM_v2EvalHarness(LM):
                     generated_ids[batch_pos][seq_len[batch_pos]:], 
                     skip_special_tokens=True
                 )
-            
+                
+                # Testing
+                gen = generated_ids[batch_pos][seq_len[batch_pos]:]  # tokens after prompt
+                if generated_answer.strip() == "":
+                    print("BLANK first_token_id:", int(gen[0].item()) if gen.numel() > 0 else None)
+                            
                 # count token number
                 if self.show_speed:
                     num_tokens += (generated_ids[batch_pos][seq_len[batch_pos]:] != self.mask_id).sum()
