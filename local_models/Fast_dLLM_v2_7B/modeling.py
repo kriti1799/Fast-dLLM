@@ -518,7 +518,7 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
                 and (not update_past_key_values)
                 and (not use_cache) and (not use_block_cache)   # <<< IMPORTANT isolation guard
             ):
-                # TODO: replace this with the true denoise mask from the codebase
+                
                 mask_pos = (input_ids == mask_id) if input_ids is not None else None
 
                 if mask_pos is not None and mask_pos.any():
@@ -569,6 +569,13 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
         #     )
 
         hidden_states = self.norm(hidden_states)
+
+        self.layer_skip_stats = {
+        "skipped_layers": int(skipped_layers),
+        "eligible_layers": int(eligible_layers),
+        "ratio": float(skipped_layers) / max(1, int(eligible_layers)),
+        "threshold": float(layer_cos_threshold),
+        }
         return BaseModelOutputWithPastAndBlockCache(
             last_hidden_state=hidden_states,
             past_key_values=past_key_values if use_cache else None,

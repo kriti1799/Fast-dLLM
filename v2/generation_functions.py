@@ -94,6 +94,9 @@ class Fast_dLLM_QwenForCausalLM:
 
             step = 0
             block_past_key_values = None
+
+            skip_log = []
+
             while True:
                 mask_idx = (x_t[:, -block_size:] == mask_id)
                 if mask_idx.sum() == 0:
@@ -109,6 +112,11 @@ class Fast_dLLM_QwenForCausalLM:
                     next_token[finished_flag] = tokenizer.pad_token_id
                     x_t = torch.cat([x_t, next_token], dim=1)
                     step += 1
+
+                    stats = getattr(self, "layer_skip_stats", None)
+                    if stats is not None:
+                        skip_log.append(stats.copy())
+
 
                     break
                 
@@ -169,6 +177,11 @@ class Fast_dLLM_QwenForCausalLM:
                                 
                                 else:
                                     output = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, use_block_cache=True)
+
+                                    stats = getattr(self, "layer_skip_stats", None)
+                                    if stats is not None:
+                                        skip_log.append(stats.copy())
+
                                     logits, block_past_key_values = output.logits, output.block_past_key_values
                                     logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)
                                     logits = logits[:, start:end]
@@ -263,6 +276,11 @@ class Fast_dLLM_QwenForCausalLM:
                                     hidden = output.hidden_states
                                     hidden = torch.cat([hidden[:, :1, :], hidden[:, :-1, :]], dim=1)
 
+                                    stats = getattr(self, "layer_skip_stats", None)
+                                    if stats is not None:
+                                        skip_log.append(stats.copy())
+
+
                                     fwd_tokens_total += x_t[:, start:end].numel()
 
                                     skip_streak_sb[small_block_idx] = 0
@@ -337,6 +355,11 @@ class Fast_dLLM_QwenForCausalLM:
                                 prev_hidden_sb[small_block_idx]  = hidden.detach()
                                 prev_logits_sb[small_block_idx]   = logits.detach()
 
+                                stats = getattr(self, "layer_skip_stats", None)
+                                if stats is not None:
+                                    skip_log.append(stats.copy())
+
+
                         base = x_t.size(1) - block_size              # start index of the current last block in x_t
                         rel  = (seq_len - base)                      # [B] position of prompt boundary within last block
 
@@ -409,12 +432,23 @@ class Fast_dLLM_QwenForCausalLM:
                 finished_samples[original_idx] = x_t[sample_idx:sample_idx+1].clone().squeeze(dim=0)
         
         assert len(finished_samples) == batch_size
+
+
         self.token_skip_stats = {
         "skipped": int(token_skip_skipped_total),
         "eligible": int(token_skip_eligible_total),
         "ratio": float(token_skip_skipped_total) / max(1, int(token_skip_eligible_total)),
         "fwd_tokens": int(fwd_tokens_total), 
 }
+        total_skipped = sum(s["skipped_layers"] for s in skip_log)
+        total_eligible = sum(s["eligible_layers"] for s in skip_log)
+
+        print({
+        "calls": len(skip_log),
+        "total_skipped_layers": total_skipped,
+        "total_eligible_layers": total_eligible,
+        "overall_skip_ratio": total_skipped / max(1, total_eligible),
+    })
         return finished_samples
 
     @torch.no_grad()
