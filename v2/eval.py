@@ -272,6 +272,7 @@ class Fast_dLLM_v2EvalHarness(LM):
                         use_block_cache=self.use_block_cache,
                         threshold=self.threshold,
                         token_cos_threshold=self.token_cos_threshold,
+                        layer_cos_threshold = self.layer_cos_threshold,
                     )
 
                     m = self.accelerator.unwrap_model(self.model) if self.accelerator is not None else self.model
@@ -294,6 +295,7 @@ class Fast_dLLM_v2EvalHarness(LM):
                         use_block_cache=self.use_block_cache,
                         threshold=self.threshold,
                         token_cos_threshold=self.token_cos_threshold,
+                        layer_cos_threshold = self.layer_cos_threshold
                     )
 
                     m = self.accelerator.unwrap_model(self.model) if self.accelerator is not None else self.model
