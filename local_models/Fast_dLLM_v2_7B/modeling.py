@@ -502,6 +502,7 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
 
         layer_cos_threshold = kwargs.pop("layer_cos_threshold", 0.9)
         mask_id = kwargs.pop("mask_id", 151665)
+        layer_cos_threshold = 0.9
 
         prev_layer_in = None
         skipped_layers = 0
@@ -516,7 +517,7 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
                 and prev_layer_in is not None
                 and layer_cos_threshold <= 1.0
                 and (not update_past_key_values)
-                and (not use_cache) and (not use_block_cache)   # <<< IMPORTANT isolation guard
+                  
             ):
                 
                 mask_pos = (input_ids == mask_id) if input_ids is not None else None
