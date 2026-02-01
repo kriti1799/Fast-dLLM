@@ -502,7 +502,7 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
 
         layer_cos_threshold = kwargs.pop("layer_cos_threshold", 0.98)
         mask_id = kwargs.pop("mask_id", 151665)
-        layer_cos_threshold = 0.95
+        layer_cos_threshold = 0.98
 
         prev_layer_in = None
         skipped_layers = 0
