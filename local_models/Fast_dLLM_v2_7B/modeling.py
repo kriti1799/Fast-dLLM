@@ -500,7 +500,11 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
         # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
-        layer_cos_threshold = kwargs.pop("layer_cos_threshold", 0.95)
+        layer_cos_threshold = kwargs.pop("layer_cos_threshold", 1.1)
+        if not hasattr(self, "_printed_layer_thr"):
+            print("[DEBUG forward] layer_cos_threshold =", layer_cos_threshold, flush=True)
+            self._printed_layer_thr = True
+
         mask_id = kwargs.pop("mask_id", 151665)
         #layer_cos_threshold = 0.95
 

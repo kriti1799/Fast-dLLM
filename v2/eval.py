@@ -262,6 +262,11 @@ class Fast_dLLM_v2EvalHarness(LM):
             
             with torch.no_grad():
                 if self.accelerator is not None:
+                    # take gen_kwargs from the request (lm-eval puts --gen_kwargs here)
+                    first_req = batch[0][1]
+                    req_kwargs = getattr(first_req, "kwargs", {}) or {}
+                    layer_cos_threshold = float(req_kwargs.get("layer_cos_threshold", 1.1))  # default disables
+
                     generated_ids = self.accelerator.unwrap_model(self.model).mdm_sample(
                         batched_input_ids,
                         tokenizer=self.tokenizer,
@@ -274,7 +279,7 @@ class Fast_dLLM_v2EvalHarness(LM):
                         use_block_cache=self.use_block_cache,
                         threshold=self.threshold,
                         token_cos_threshold=self.token_cos_threshold,
-                        layer_cos_threshold = self.layer_cos_threshold,
+                        layer_cos_threshold = layer_cos_threshold,
                     )
 
                     m = self.accelerator.unwrap_model(self.model) if self.accelerator is not None else self.model
@@ -285,6 +290,11 @@ class Fast_dLLM_v2EvalHarness(LM):
                         total_skipped += int(stats.get("skipped", 0))
                         total_eligible += int(stats.get("eligible", 0))
                 else:
+                    # take gen_kwargs from the request (lm-eval puts --gen_kwargs here)
+                    first_req = batch[0][1]
+                    req_kwargs = getattr(first_req, "kwargs", {}) or {}
+                    layer_cos_threshold = float(req_kwargs.get("layer_cos_threshold", 1.1))  # default disables
+
                     generated_ids = self.model.mdm_sample(
                         batched_input_ids,
                         tokenizer=self.tokenizer,
@@ -297,7 +307,7 @@ class Fast_dLLM_v2EvalHarness(LM):
                         use_block_cache=self.use_block_cache,
                         threshold=self.threshold,
                         token_cos_threshold=self.token_cos_threshold,
-                        layer_cos_threshold = self.layer_cos_threshold,
+                        layer_cos_threshold = layer_cos_threshold,
                     )
 
                     m = self.accelerator.unwrap_model(self.model) if self.accelerator is not None else self.model
