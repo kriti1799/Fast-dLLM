@@ -500,21 +500,73 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
         # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
-        for decoder_layer in self.layers[: self.config.num_hidden_layers]:
-            hidden_states = decoder_layer(
-                hidden_states,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                past_key_value=past_key_values,
-                use_cache=use_cache,
-                cache_position=cache_position,
-                position_embeddings=position_embeddings,
-                update_past_key_values=update_past_key_values,
-                use_block_cache=use_block_cache,
-                block_past_key_values=block_past_key_values,
-                replace_position=replace_position,
-                **kwargs,
-            )
+        layer_cos_threshold = kwargs.pop("layer_cos_threshold", 1.1)
+        mask_id = kwargs.pop("mask_id", 151665)
+
+        prev_layer_in = None
+        skipped_layers = 0
+        eligible_layers = 0
+
+        for layer_idx, decoder_layer in enumerate(self.layers[: self.config.num_hidden_layers]):
+            cur_in = hidden_states
+
+            do_skip = False
+            if (
+                layer_idx > 0
+                and prev_layer_in is not None
+                and layer_cos_threshold <= 1.0
+                and (not update_past_key_values)
+                and (not use_cache) and (not use_block_cache)   # <<< IMPORTANT isolation guard
+            ):
+                # TODO: replace this with the true denoise mask from the codebase
+                mask_pos = (input_ids == mask_id) if input_ids is not None else None
+
+                if mask_pos is not None and mask_pos.any():
+                    eligible_layers += 1
+                    with torch.no_grad():
+                        cur = cur_in[mask_pos].float()      # [N, H]
+                        prev = prev_layer_in[mask_pos].float()
+
+                        score = F.cosine_similarity(cur, prev, dim=-1).mean()
+                        do_skip = bool((score >= layer_cos_threshold).item())
+
+            if do_skip:
+                hidden_states = cur_in
+                skipped_layers += 1
+            else:
+                out = decoder_layer(
+                    cur_in,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                     past_key_value=past_key_values,
+                    use_cache=use_cache,
+                    cache_position=cache_position,
+                    position_embeddings=position_embeddings,
+                    update_past_key_values=update_past_key_values,
+                    use_block_cache=use_block_cache,
+                    block_past_key_values=block_past_key_values,
+                    replace_position=replace_position,
+                    **kwargs,
+                )
+                hidden_states = out[0] if isinstance(out, (tuple, list)) else out
+
+            prev_layer_in = cur_in.detach()
+
+        # for decoder_layer in self.layers[: self.config.num_hidden_layers]:
+        #     hidden_states = decoder_layer(
+        #         hidden_states,
+        #         attention_mask=attention_mask,
+        #         position_ids=position_ids,
+        #         past_key_value=past_key_values,
+        #         use_cache=use_cache,
+        #         cache_position=cache_position,
+        #         position_embeddings=position_embeddings,
+        #         update_past_key_values=update_past_key_values,
+        #         use_block_cache=use_block_cache,
+        #         block_past_key_values=block_past_key_values,
+        #         replace_position=replace_position,
+        #         **kwargs,
+        #     )
 
         hidden_states = self.norm(hidden_states)
         return BaseModelOutputWithPastAndBlockCache(
