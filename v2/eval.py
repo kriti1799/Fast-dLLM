@@ -36,6 +36,7 @@ import json
 import time
 import types
 import generation_functions
+import inspect
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -50,7 +51,7 @@ def set_seed(seed):
 class Fast_dLLM_v2EvalHarness(LM):
     def __init__(
         self,
-        model_path='Efficient-Large-Model/Fast_dLLM_v2_7B',
+        model_path='"local_models/Fast_dLLM_v2_7B"',
         device="cuda",
         show_speed=False,
         max_new_tokens=2048,
@@ -87,6 +88,8 @@ class Fast_dLLM_v2EvalHarness(LM):
         self.model.mdm_sample = types.MethodType(generation_functions.Fast_dLLM_QwenForCausalLM.batch_sample, self.model)
 
         self.device = torch.device(device)
+        
+        print(inspect.getsourcefile(type(self.model)))
         if self.accelerator is not None:
             self.model = self.accelerator.prepare(self.model)
             self.device = torch.device(f'{self.accelerator.device}')
