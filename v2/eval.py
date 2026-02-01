@@ -329,8 +329,8 @@ class Fast_dLLM_v2EvalHarness(LM):
                 
                 # put result in the correct original index position
                 output[orig_idx] = generated_answer
-                print("first_token_id:", int(gen[0].item()) if gen.numel() > 0 else None)
-                print(gen )
+              
+           
                 print('=' * 20)
                 print('question: ', req.args[0])
                 print('answer: ', generated_answer)
