@@ -502,7 +502,7 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
 
 
         # ---- Layer-skip knobs (default: disabled) ----
-        layer_cos_threshold = kwargs.pop("layer_cos_threshold", 0.95)  # >1 disables
+        layer_cos_threshold = kwargs.pop("layer_cos_threshold", 1.1)  # >1 disables
         mask_id = kwargs.get("mask_id", 151665)  # mask token id
         # ---------------------------------------------
 
