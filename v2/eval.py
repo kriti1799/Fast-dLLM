@@ -62,6 +62,7 @@ class Fast_dLLM_v2EvalHarness(LM):
         bd_size=32,
         threshold=0.9,
         token_cos_threshold=1.1,
+        layer_cos_threshold = 1.1,
         **kwargs,
     ):
 
@@ -112,7 +113,7 @@ class Fast_dLLM_v2EvalHarness(LM):
         self.threshold = threshold
         self.bd_size = bd_size
         self.token_cos_threshold = token_cos_threshold
-        self.layer_cos_threshold =0.99
+        self.layer_cos_threshold =layer_cos_threshold
 
 
     @property

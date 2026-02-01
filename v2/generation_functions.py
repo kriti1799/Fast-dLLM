@@ -31,7 +31,8 @@ class Fast_dLLM_QwenForCausalLM:
         top_p=0.95,
         temperature=0.0,
         token_cos_threshold: float = 1.1,  # >1 disables skipping by default
-        layer_cos_threshold: float = 1.1
+        layer_cos_threshold: float = 1.1,
+        **kwargs,
 
     ):
         num_blocks = max_new_tokens // block_size + seq_len.max().item() // block_size
@@ -177,7 +178,7 @@ class Fast_dLLM_QwenForCausalLM:
                                 
                                 
                                 else:
-                                    output = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, use_block_cache=True, layer_cos_threshold = layer_cos_threshold)
+                                    output = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, use_block_cache=True, layer_cos_threshold = layer_cos_threshold, **kwargs)
 
                                     stats = getattr(getattr(self, "model", self), "layer_skip_stats", None)
 
@@ -271,7 +272,7 @@ class Fast_dLLM_QwenForCausalLM:
 
 
                                     output = self.forward(input_ids=x_t[:,start:end], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, use_block_cache=True, 
-                                                        block_past_key_values=block_past_key_values, replace_position=small_block_start_idx, layer_cos_threshold = layer_cos_threshold)
+                                                        block_past_key_values=block_past_key_values, replace_position=small_block_start_idx, layer_cos_threshold = layer_cos_threshold, **kwargs)
                                     logits = output.logits
                                     logits = torch.cat([logits[:, :1, :], logits[:, :-1, :]], dim=1)       
                                     
@@ -341,7 +342,7 @@ class Fast_dLLM_QwenForCausalLM:
 
                             #logits = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False).logits
                             #Change - Adding a hidden state variable
-                                output = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, layer_cos_threshold = layer_cos_threshold)
+                                output = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, layer_cos_threshold = layer_cos_threshold, **kwargs)
                                 hidden = output.hidden_states
                                 hidden = torch.cat([hidden[:, :1, :], hidden[:, :-1, :]], dim=1)[:, start:end, :]
 
