@@ -314,6 +314,12 @@ class Fast_dLLM_v2EvalHarness(LM):
 
                 # Testing
                 gen = generated_ids[batch_pos][seq_len[batch_pos]:]  # tokens after prompt
+                
+                #Testing
+                non_special = (gen != self.mask_id) & (gen != self.tokenizer.pad_token_id)
+                print("[DEBUG] decoded_region_len:", gen.numel(),
+                    "non_mask_non_pad:", int(non_special.sum().item()),
+                    "first_token_id:", int(gen[0].item()) if gen.numel() > 0 else None)
                 if generated_answer.strip() == "":
                     print("BLANK first_token_id:", int(gen[0].item()) if gen.numel() > 0 else None)
                             
@@ -323,7 +329,8 @@ class Fast_dLLM_v2EvalHarness(LM):
                 
                 # put result in the correct original index position
                 output[orig_idx] = generated_answer
-
+                print("first_token_id:", int(gen[0].item()) if gen.numel() > 0 else None)
+                print(gen )
                 print('=' * 20)
                 print('question: ', req.args[0])
                 print('answer: ', generated_answer)
@@ -335,7 +342,7 @@ class Fast_dLLM_v2EvalHarness(LM):
             print(f"Total time taken: {end_time - start_time} seconds")
             print(f"Tokens per second: {num_tokens / (end_time - start_time)}")
         
-        print("first_token_id:", int(gen[0].item()) if gen.numel() > 0 else None)
+       
         print("[SKIP STATS] token_cos_threshold =", self.token_cos_threshold)
         print("[SKIP STATS] fwd_tokens =", total_fwd_tokens)
         print("[SKIP STATS] skipped/eligible =", total_skipped, "/", total_eligible)
