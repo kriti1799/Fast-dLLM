@@ -576,6 +576,7 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
         "ratio": float(skipped_layers) / max(1, int(eligible_layers)),
         "threshold": float(layer_cos_threshold),
         }
+        
         return BaseModelOutputWithPastAndBlockCache(
             last_hidden_state=hidden_states,
             past_key_values=past_key_values if use_cache else None,

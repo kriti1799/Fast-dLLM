@@ -343,9 +343,12 @@ class Fast_dLLM_v2EvalHarness(LM):
             print(f"Tokens per second: {num_tokens / (end_time - start_time)}")
         
        
-        print("[SKIP STATS] token_cos_threshold =", self.token_cos_threshold)
-        print("[SKIP STATS] fwd_tokens =", total_fwd_tokens)
-        print("[SKIP STATS] skipped/eligible =", total_skipped, "/", total_eligible)
+        print("[SKIP STATS] Total calls =", stats.get("calls"))
+        print("[SKIP STATS] Total skipped =",stats.get("total_skipped"))
+        print("[SKIP STATS] Total eligible =", stats.get("total_eligible"))
+        print("[SKIP STATS] Overall skip ratio =", stats.get("overall_skip_ratio"))
+        # print("[SKIP STATS] fwd_tokens =", total_fwd_tokens)
+        # print("[SKIP STATS] skipped/eligible =", total_skipped, "/", total_eligible)
         return output
 
 

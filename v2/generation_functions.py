@@ -432,6 +432,9 @@ class Fast_dLLM_QwenForCausalLM:
                 finished_samples[original_idx] = x_t[sample_idx:sample_idx+1].clone().squeeze(dim=0)
         
         assert len(finished_samples) == batch_size
+        
+        total_skipped = sum(s["skipped_layers"] for s in skip_log)
+        total_eligible = sum(s["eligible_layers"] for s in skip_log)
 
 
         self.token_skip_stats = {
@@ -439,16 +442,13 @@ class Fast_dLLM_QwenForCausalLM:
         "eligible": int(token_skip_eligible_total),
         "ratio": float(token_skip_skipped_total) / max(1, int(token_skip_eligible_total)),
         "fwd_tokens": int(fwd_tokens_total), 
-}
-        total_skipped = sum(s["skipped_layers"] for s in skip_log)
-        total_eligible = sum(s["eligible_layers"] for s in skip_log)
-
-        print({
-        "calls": len(skip_log),
+        
+         "calls": len(skip_log),
         "total_skipped_layers": total_skipped,
         "total_eligible_layers": total_eligible,
         "overall_skip_ratio": total_skipped / max(1, total_eligible),
-    })
+}
+       
         return finished_samples
 
     @torch.no_grad()
