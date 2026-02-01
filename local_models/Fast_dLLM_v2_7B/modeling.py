@@ -503,7 +503,7 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
 
         # ---- Layer-skip knobs (default: disabled) ----
         layer_cos_threshold = kwargs.pop("layer_cos_threshold", 1.1)  # >1 disables
-        mask_id = kwargs.get("mask_id", 151665)  # mask token id
+        mask_id = kwargs.pop("mask_id", 151665)  # mask token id
         # ---------------------------------------------
 
         prev_layer_in = None
@@ -519,26 +519,22 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
                 layer_idx > 0
                 and prev_layer_in is not None
                 and layer_cos_threshold <= 1.0
-                and (not update_past_key_values)   # safety gate
+                and (not update_past_key_values) 
+                and (not use_cache) and (not use_block_cache)  # safety gate
             ):
                 # masked-only similarity is best; if no masks, don't skip
-                if input_ids is not None:
-                    mask_pos = (input_ids == mask_id)  # [B, T]
-                else:
-                    mask_pos = None
+                mask_pos = (input_ids == mask_id) if input_ids is not None else None
 
                 if mask_pos is not None and mask_pos.any():
                     eligible_layers += 1
+                    with torch.no_grad():
+                        cur = cur_in[mask_pos].float()      # [N, H]
+                        prev = prev_layer_in[mask_pos].float()
 
                     # cosine per token position: [B, T]
-                    cos = F.cosine_similarity(
-                        cur_in.float(), prev_layer_in.float(), dim=-1
-                    ).clamp(-1, 1)
-
-                    cos_masked = cos[mask_pos]  # [N_masked_tokens]
-
-                    score = cos_masked.mean()
-                    do_skip = (score >= layer_cos_threshold)
+                    score = F.cosine_similarity(cur, prev, dim=-1).mean()
+                                       
+                    do_skip = bool((score >= layer_cos_threshold).item())
             
             if do_skip:
                 hidden_states = cur_in
