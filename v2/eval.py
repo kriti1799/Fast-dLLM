@@ -342,13 +342,15 @@ class Fast_dLLM_v2EvalHarness(LM):
             print(f"Total time taken: {end_time - start_time} seconds")
             print(f"Tokens per second: {num_tokens / (end_time - start_time)}")
         
-       
-        print("[SKIP STATS] Total calls =", stats.get("calls"))
-        print("[SKIP STATS] Total skipped =",stats.get("total_skipped"))
-        print("[SKIP STATS] Total eligible =", stats.get("total_eligible"))
-        print("[SKIP STATS] Overall skip ratio =", stats.get("overall_skip_ratio"))
-        # print("[SKIP STATS] fwd_tokens =", total_fwd_tokens)
-        # print("[SKIP STATS] skipped/eligible =", total_skipped, "/", total_eligible)
+        if stats is None:
+            print("[SKIP STATS] No stats found on model")
+        else:
+            print("[SKIP STATS] Total calls =", stats.get("calls"))
+            print("[SKIP STATS] Total skipped layers =",stats.get("total_skipped_layers"))
+            print("[SKIP STATS] Total eligible layers=", stats.get("total_eligible_layers"))
+            print("[SKIP STATS] Overall skip ratio =", stats.get("overall_skip_ratio"))
+            print("[SKIP STATS] fwd_tokens =", total_fwd_tokens)
+            print("[SKIP STATS] skipped/eligible =", total_skipped, "/", total_eligible)
         return output
 
 

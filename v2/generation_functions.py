@@ -113,7 +113,7 @@ class Fast_dLLM_QwenForCausalLM:
                     x_t = torch.cat([x_t, next_token], dim=1)
                     step += 1
 
-                    stats = getattr(self, "layer_skip_stats", None)
+                    stats = getattr(getattr(self, "model", self), "layer_skip_stats", None)
                     if stats is not None:
                         skip_log.append(stats.copy())
 
@@ -178,7 +178,8 @@ class Fast_dLLM_QwenForCausalLM:
                                 else:
                                     output = self.forward(input_ids=x_t[:, -block_size:], use_cache=True, past_key_values=past_key_values, update_past_key_values=False, use_block_cache=True)
 
-                                    stats = getattr(self, "layer_skip_stats", None)
+                                    stats = getattr(getattr(self, "model", self), "layer_skip_stats", None)
+
                                     if stats is not None:
                                         skip_log.append(stats.copy())
 
@@ -276,7 +277,8 @@ class Fast_dLLM_QwenForCausalLM:
                                     hidden = output.hidden_states
                                     hidden = torch.cat([hidden[:, :1, :], hidden[:, :-1, :]], dim=1)
 
-                                    stats = getattr(self, "layer_skip_stats", None)
+                                    stats = getattr(getattr(self, "model", self), "layer_skip_stats", None)
+
                                     if stats is not None:
                                         skip_log.append(stats.copy())
 
@@ -355,7 +357,8 @@ class Fast_dLLM_QwenForCausalLM:
                                 prev_hidden_sb[small_block_idx]  = hidden.detach()
                                 prev_logits_sb[small_block_idx]   = logits.detach()
 
-                                stats = getattr(self, "layer_skip_stats", None)
+                                stats = getattr(getattr(self, "model", self), "layer_skip_stats", None)
+
                                 if stats is not None:
                                     skip_log.append(stats.copy())
 
@@ -442,7 +445,7 @@ class Fast_dLLM_QwenForCausalLM:
         "eligible": int(token_skip_eligible_total),
         "ratio": float(token_skip_skipped_total) / max(1, int(token_skip_eligible_total)),
         "fwd_tokens": int(fwd_tokens_total), 
-        
+
          "calls": len(skip_log),
         "total_skipped_layers": total_skipped,
         "total_eligible_layers": total_eligible,
