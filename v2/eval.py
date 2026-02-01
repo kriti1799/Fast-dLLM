@@ -51,7 +51,7 @@ def set_seed(seed):
 class Fast_dLLM_v2EvalHarness(LM):
     def __init__(
         self,
-        model_path='"local_models/Fast_dLLM_v2_7B"',
+        model_path="local_models/Fast_dLLM_v2_7B",
         device="cuda",
         show_speed=False,
         max_new_tokens=2048,
@@ -88,7 +88,7 @@ class Fast_dLLM_v2EvalHarness(LM):
         self.model.mdm_sample = types.MethodType(generation_functions.Fast_dLLM_QwenForCausalLM.batch_sample, self.model)
 
         self.device = torch.device(device)
-        
+
         print(inspect.getsourcefile(type(self.model)))
         if self.accelerator is not None:
             self.model = self.accelerator.prepare(self.model)
@@ -335,6 +335,7 @@ class Fast_dLLM_v2EvalHarness(LM):
             print(f"Total time taken: {end_time - start_time} seconds")
             print(f"Tokens per second: {num_tokens / (end_time - start_time)}")
         
+        print("first_token_id:", int(gen[0].item()) if gen.numel() > 0 else None)
         print("[SKIP STATS] token_cos_threshold =", self.token_cos_threshold)
         print("[SKIP STATS] fwd_tokens =", total_fwd_tokens)
         print("[SKIP STATS] skipped/eligible =", total_skipped, "/", total_eligible)
