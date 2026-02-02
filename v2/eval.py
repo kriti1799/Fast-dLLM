@@ -216,6 +216,11 @@ class Fast_dLLM_v2EvalHarness(LM):
         total_fwd_tokens = 0
         total_skipped = 0
         total_eligible = 0
+        m = self.accelerator.unwrap_model(self.model) if self.accelerator else self.model
+        inner = getattr(m, "model", m)
+        inner.layer_skip_meter = {"calls": 0, "skipped": 0, "eligible": 0,
+                                "calls_upd_kv_true": 0, "calls_upd_kv_false": 0}
+
 
         output = [None] * len(requests)  # pre-allocate output list
         num_tokens = 0
