@@ -438,8 +438,8 @@ class Fast_dLLM_QwenForCausalLM:
         
         assert len(finished_samples) == batch_size
         
-        total_skipped = sum(s["skipped_layers"] for s in skip_log)
-        total_eligible = sum(s["eligible_layers"] for s in skip_log)
+        total_skipped = sum(s["skipped"] for s in skip_log)
+        total_eligible = sum(s["eligible"] for s in skip_log)
 
 
         self.token_skip_stats = {

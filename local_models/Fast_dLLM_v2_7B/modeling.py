@@ -589,8 +589,8 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
 
         m = self.layer_skip_meter
         m["calls"] += 1
-        m["skipped_layers"] += int(skipped_layers)
-        m["eligible_layers"] += int(eligible_layers)
+        m["skipped"] += int(skipped_layers)
+        m["eligible"] += int(eligible_layers)
         if update_past_key_values:
             m["calls_upd_kv_true"] += 1
         else:
