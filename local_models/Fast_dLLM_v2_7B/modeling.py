@@ -520,7 +520,7 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
                 layer_idx > 0
                 and prev_layer_in is not None
                 and layer_cos_threshold <= 1.0
-                and (not update_past_key_values) and (not use_cache) and (not use_block_cache)
+                and (not update_past_key_values) 
                   
             ):
                 
