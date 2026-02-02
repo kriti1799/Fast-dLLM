@@ -533,6 +533,18 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
                         prev = prev_layer_in[mask_pos].float()
 
                         score = F.cosine_similarity(cur, prev, dim=-1).mean()
+                        if not hasattr(self, "layer_score_meter"):
+                            self.layer_score_meter = {"n": 0, "sum": 0.0, "min": 1.0, "max": -1.0}
+
+                        s = float(score.item())
+                        sm = self.layer_score_meter
+                        sm["n"] += 1
+                        sm["sum"] += s
+                        sm["min"] = min(sm["min"], s)
+                        sm["max"] = max(sm["max"], s)
+
+                                                
+
                         do_skip = bool((score >= layer_cos_threshold).item())
 
             if do_skip:

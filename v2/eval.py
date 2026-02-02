@@ -220,6 +220,7 @@ class Fast_dLLM_v2EvalHarness(LM):
         inner = getattr(m, "model", m)
         inner.layer_skip_meter = {"calls": 0, "skipped": 0, "eligible": 0,
                                 "calls_upd_kv_true": 0, "calls_upd_kv_false": 0}
+        inner.layer_score_meter = {"n": 0, "sum": 0.0, "min": 1.0, "max": -1.0}
 
 
         output = [None] * len(requests)  # pre-allocate output list
@@ -360,6 +361,17 @@ class Fast_dLLM_v2EvalHarness(LM):
         inner = getattr(m, "model", m)  # base transformer that runs layer loop
         print("[LAYER METER]", getattr(inner, "layer_skip_meter", None), flush=True)
         print("[LAST LAYER STATS]", getattr(inner, "layer_skip_stats", None), flush=True)
+
+        sm = getattr(inner, "layer_score_meter", None)
+        if sm and sm["n"] > 0:
+            print("[LAYER SCORE] n =", sm["n"],
+                "mean =", sm["sum"] / sm["n"],
+                "min =", sm["min"],
+                "max =", sm["max"],
+                flush=True)
+        else:
+            print("[LAYER SCORE] no scores recorded", flush=True)
+
 
        
 
