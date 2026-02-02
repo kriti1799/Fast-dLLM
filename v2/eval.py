@@ -361,6 +361,9 @@ class Fast_dLLM_v2EvalHarness(LM):
         print("[LAYER METER]", getattr(inner, "layer_skip_meter", None), flush=True)
         print("[LAST LAYER STATS]", getattr(inner, "layer_skip_stats", None), flush=True)
 
+       
+
+
         if self.show_speed:
             print(f"Total number of tokens generated: {num_tokens}")
             print(f"Total time taken: {end_time - start_time} seconds")

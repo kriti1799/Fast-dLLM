@@ -538,18 +538,7 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
             if do_skip:
                 hidden_states = cur_in
                 skipped_layers += 1
-                if not hasattr(self, "layer_skip_meter"):
-                    self.layer_skip_meter = {"calls": 0, "skipped": 0, "eligible": 0,
-                                            "calls_upd_kv_true": 0, "calls_upd_kv_false": 0}
-
-                m = self.layer_skip_meter
-                m["calls"] += 1
-                m["skipped_layers"] += int(skipped_layers)
-                m["eligible_layers"] += int(eligible_layers)
-                if update_past_key_values:
-                    m["calls_upd_kv_true"] += 1
-                else:
-                    m["calls_upd_kv_false"] += 1
+                
 
             else:
                 out = decoder_layer(
@@ -588,11 +577,24 @@ class Fast_dLLM_QwenModel(Fast_dLLM_QwenPreTrainedModel):
         hidden_states = self.norm(hidden_states)
 
         self.layer_skip_stats = {
-        "skipped_layers": int(skipped_layers),
-        "eligible_layers": int(eligible_layers),
+        "skipped": int(skipped_layers),
+        "eligible": int(eligible_layers),
         "ratio": float(skipped_layers) / max(1, int(eligible_layers)),
         "threshold": float(layer_cos_threshold),
         }
+
+        if not hasattr(self, "layer_skip_meter"):
+                    self.layer_skip_meter = {"calls": 0, "skipped": 0, "eligible": 0,
+                                            "calls_upd_kv_true": 0, "calls_upd_kv_false": 0}
+
+        m = self.layer_skip_meter
+        m["calls"] += 1
+        m["skipped_layers"] += int(skipped_layers)
+        m["eligible_layers"] += int(eligible_layers)
+        if update_past_key_values:
+            m["calls_upd_kv_true"] += 1
+        else:
+            m["calls_upd_kv_false"] += 1
 
         return BaseModelOutputWithPastAndBlockCache(
             last_hidden_state=hidden_states,
